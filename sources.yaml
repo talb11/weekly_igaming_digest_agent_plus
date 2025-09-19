@@ -1,10 +1,10 @@
-# Feeds curated for online casino first, then poker, bingo. Edit freely.
+# --- Sources (keep / edit as you like) ---
 news_rss:
   - https://igamingbusiness.com/feed/
   - https://egr.global/intel/news/feed/
   - https://www.gamblinginsider.com/rss
   - https://cdcgaming.com/feed/
-  - https://www.gamblingcommission.gov.uk/news/rss
+  - https://www.gamblingcommission.gov.uk/news/rss  # UKGC
 
 poker_rss:
   - https://www.pokernews.com/rss/news.xml
@@ -12,21 +12,32 @@ poker_rss:
 bingo_rss:
   - https://www.bingonews.co.uk/feed/
 
+# Optional: ListenNotes podcast search queries (if you add LISTENNOTES_API_KEY)
 podcasts_listennotes_queries:
-  - "igaming OR online gambling"
-  - "casino industry"
-  - "poker industry"
-  - "bingo industry"
+  - "igaming OR online gambling UK"
+  - "UK gambling regulation"
+  - "UK Gambling Commission"
+  - "UK casino industry"
+  - "UK poker industry"
+  - "UK bingo industry"
 
+# Heuristic "major" terms (used already for non-casino and for prioritizing)
 major_keywords:
   - acquisition
   - merger
   - ipo
   - funding
   - regulation
+  - regulator
   - ukgc
+  - asa
+  - dcms
   - fine
+  - sanction
   - license
+  - stake limit
+  - affordability
+  - white paper
   - launch
   - partnership
   - lawsuit
@@ -35,7 +46,11 @@ major_keywords:
   - suspension
   - revenue
   - earnings
+  - quarterly
+  - guidance
+  - layoffs
   - expansion
+  - new market
   - approval
   - enforcement
   - compliance
@@ -45,18 +60,57 @@ major_keywords:
   - megaways
   - rtp
   - live casino
-  - ontario
-  - michigan
-  - new jersey
   - uk
-  - france
-  - germany
-  - australia
-  - brazil
-  - latam
-  - europe
-  - africa
-  - middle east
-  - $
-  - €
+  - britain
+  - united kingdom
   - £
+
+# --- NEW: UK focus filter (used by the code in next step) ---
+focus:
+  region: uk
+  # If one of these keywords appears in title/summary/link -> keep
+  keywords:
+    - uk
+    - united kingdom
+    - britain
+    - british
+    - england
+    - scotland
+    - wales
+    - northern ireland
+    - ukgc
+    - gambling commission
+    - asa
+    - dcms
+    - affordability
+    - stake limit
+    - white paper
+    - £
+  # Company/operator/brand cues that imply UK relevance
+  companies:
+    - william hill
+    - 888
+    - entain
+    - ladbrokes
+    - coral
+    - bet365
+    - sky bet
+    - sky betting
+    - flutter
+    - paddy power
+    - betfair
+    - betfred
+    - rank
+    - grosvenor
+    - tombola
+    - mecca bingo
+    - buzz bingo
+    - gamesys
+    - virgin games
+    - kindred
+    - unibet
+    - national lottery
+  # Domain suffixes that imply UK content
+  domain_suffixes:
+    - ".co.uk"
+    - ".uk"
