@@ -1,0 +1,62 @@
+# Feeds curated for online casino first, then poker, bingo. Edit freely.
+news_rss:
+  - https://igamingbusiness.com/feed/
+  - https://egr.global/intel/news/feed/
+  - https://www.gamblinginsider.com/rss
+  - https://cdcgaming.com/feed/
+  - https://www.gamblingcommission.gov.uk/news/rss
+
+poker_rss:
+  - https://www.pokernews.com/rss/news.xml
+
+bingo_rss:
+  - https://www.bingonews.co.uk/feed/
+
+podcasts_listennotes_queries:
+  - "igaming OR online gambling"
+  - "casino industry"
+  - "poker industry"
+  - "bingo industry"
+
+major_keywords:
+  - acquisition
+  - merger
+  - ipo
+  - funding
+  - regulation
+  - ukgc
+  - fine
+  - license
+  - launch
+  - partnership
+  - lawsuit
+  - settlement
+  - investigation
+  - suspension
+  - revenue
+  - earnings
+  - expansion
+  - approval
+  - enforcement
+  - compliance
+  - aml
+  - jackpot
+  - progressive
+  - megaways
+  - rtp
+  - live casino
+  - ontario
+  - michigan
+  - new jersey
+  - uk
+  - france
+  - germany
+  - australia
+  - brazil
+  - latam
+  - europe
+  - africa
+  - middle east
+  - $
+  - €
+  - £
