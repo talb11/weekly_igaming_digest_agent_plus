@@ -25,17 +25,42 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # sanity check that all required secrets exist before running the script
+      # Preflight: verify required secrets exist (Bash, no heredoc)
       - name: Preflight env
         run: |
-          python - <<'PY'
-          import os, sys
-          required = [
-            "OPENAI_API_KEY","OPENAI_MODEL","TO_EMAIL","FROM_EMAIL",
-            "SMTP_SERVER","SMTP_PORT","SMTP_USER","SMTP_PASS"
-          ]
-          missing = [k for k in required if not os.getenv(k)]
-          if missing:
-            print("Missing secrets:", ", ".join(missing))
-            sys.exit(1)
-          print("Al
+          missing=()
+          for k in OPENAI_API_KEY OPENAI_MODEL TO_EMAIL FROM_EMAIL SMTP_SERVER SMTP_PORT SMTP_USER SMTP_PASS; do
+            if [ -z "${!k}" ]; then missing+=("$k"); fi
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "Missing secrets: ${missing[*]}"
+            exit 1
+          fi
+          echo "All required secrets present."
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+          TO_EMAIL: ${{ secrets.TO_EMAIL }}
+          FROM_EMAIL: ${{ secrets.FROM_EMAIL }}
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+
+      - name: Run digest
+        run: python main.py
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}   # e.g., gpt-5
+          TO_EMAIL: ${{ secrets.TO_EMAIL }}
+          FROM_EMAIL: ${{ secrets.FROM_EMAIL }}
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          MAX_ITEMS_PER_SECTION: ${{ secrets.MAX_ITEMS_PER_SECTION }}
+          LOOKBACK_DAYS: ${{ secrets.LOOKBACK_DAYS }}
+          MAJOR_ONLY_NON_CASINO: ${{ secrets.MAJOR_ONLY_NON_CASINO }}
+          LISTENNOTES_API_KEY: ${{ secrets.LISTENNOTES_API_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SHEETS_SPREADSHEET: ${{ secrets.SHEETS_SPREADSHEET }}
