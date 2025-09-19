@@ -19,7 +19,7 @@ load_dotenv()
 
 # ----------- Configuration from environment ----------- #
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-MODEL = os.getenv("OPENAI_MODEL", "gpt-5")  # default to gpt-5 as requested
+MODEL = os.getenv("OPENAI_MODEL", "gpt-5")  # default to gpt-5 per request
 TO_EMAIL = os.getenv("TO_EMAIL")
 FROM_EMAIL = os.getenv("FROM_EMAIL", os.getenv("SMTP_USER"))
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
@@ -93,15 +93,25 @@ def is_major(body, major_terms):
 
 # ----------- UK Focus Filter ----------- #
 def parse_focus(sources):
-    """Returns a dict with focus keywords/companies/suffixes, or None."""
+    """Returns a dict with focus keywords/companies/suffixes, or None (robust to non-strings)."""
     focus = sources.get("focus") if isinstance(sources, dict) else None
     if not isinstance(focus, dict):
         return None
+
+    def norm_list(seq):
+        out = []
+        for x in (seq or []):
+            try:
+                out.append(str(x).strip().lower())
+            except Exception:
+                continue
+        return out
+
     return {
-        "region": str(focus.get("region", "")).lower(),
-        "keywords": [k.lower() for k in (focus.get("keywords") or [])],
-        "companies": [k.lower() for k in (focus.get("companies") or [])],
-        "suffixes": [k.lower() for k in (focus.get("domain_suffixes") or [])],
+        "region": str(focus.get("region", "")).strip().lower(),
+        "keywords": norm_list(focus.get("keywords")),
+        "companies": norm_list(focus.get("companies")),
+        "suffixes": norm_list(focus.get("domain_suffixes")),
     }
 
 def text_matches_any(text, needles):
@@ -232,6 +242,7 @@ def summarize(items, name):
                 en = (parsed.get("en") or "").strip()
                 he = (parsed.get("he") or "").strip()
             except Exception:
+                # If not JSON, fall back to raw text as EN only
                 en = raw.strip()
                 he = ""
         except Exception:
