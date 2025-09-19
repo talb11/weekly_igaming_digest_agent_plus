@@ -17,8 +17,9 @@ except Exception:
 
 load_dotenv()
 
+# ----------- Configuration from environment ----------- #
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+MODEL = os.getenv("OPENAI_MODEL", "gpt-5")  # default to gpt-5 as requested
 TO_EMAIL = os.getenv("TO_EMAIL")
 FROM_EMAIL = os.getenv("FROM_EMAIL", os.getenv("SMTP_USER"))
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
@@ -40,8 +41,7 @@ assert SMTP_SERVER and SMTP_PORT and SMTP_USER and SMTP_PASS, "SMTP settings are
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# --------------------- Sources & helpers ---------------------
-
+# ----------- Sources & basic helpers ----------- #
 def load_sources(path="sources.yaml"):
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
@@ -87,4 +87,300 @@ def collect_rss_items(section_name, urls):
             })
     return items
 
-def is_major(b_
+def is_major(body, major_terms):
+    body = body.lower()
+    return any(term.lower() in body for term in major_terms)
+
+# ----------- UK Focus Filter ----------- #
+def parse_focus(sources):
+    """Returns a dict with focus keywords/companies/suffixes, or None."""
+    focus = sources.get("focus") if isinstance(sources, dict) else None
+    if not isinstance(focus, dict):
+        return None
+    return {
+        "region": str(focus.get("region", "")).lower(),
+        "keywords": [k.lower() for k in (focus.get("keywords") or [])],
+        "companies": [k.lower() for k in (focus.get("companies") or [])],
+        "suffixes": [k.lower() for k in (focus.get("domain_suffixes") or [])],
+    }
+
+def text_matches_any(text, needles):
+    return any(n in text for n in needles)
+
+def host_matches_suffix(link, suffixes):
+    try:
+        host = urlparse(link).netloc.lower()
+        return any(host.endswith(suf) for suf in suffixes)
+    except Exception:
+        return False
+
+def item_matches_focus(it, focus):
+    """True if the item is UK-related per focus config."""
+    if not focus:
+        return True
+    text = f"{it.get('title','')} {it.get('summary','')} {it.get('link','')}".lower()
+    if text_matches_any(text, focus["keywords"]):
+        return True
+    if text_matches_any(text, focus["companies"]):
+        return True
+    if host_matches_suffix(it.get("link",""), focus["suffixes"]):
+        return True
+    return False
+
+def apply_focus_filter(items, focus, major_terms):
+    """Keep UK items; allow non-UK only if 'major'."""
+    if not focus:
+        return items
+    kept = []
+    for it in items:
+        body = f"{it['title']} {it['summary']}"
+        if item_matches_focus(it, focus) or is_major(body, major_terms):
+            kept.append(it)
+    return kept
+
+# ----------- ListenNotes (podcasts) ----------- #
+def collect_listennotes_items(queries, major_terms, focus):
+    if not LISTENNOTES_API_KEY or not queries:
+        return []
+    items = []
+    base = "https://listen-api.listennotes.com/api/v2/search"
+    headers = {"X-ListenAPI-Key": LISTENNOTES_API_KEY}
+    since = int((datetime.datetime.utcnow() - datetime.timedelta(days=LOOKBACK_DAYS)).timestamp())
+    for q in queries:
+        params = {
+            "q": q,
+            "type": "episode",
+            "sort_by_date": 1,
+            "published_after": since,
+            "safe_mode": 0,
+            "len_min": 5
+        }
+        try:
+            r = requests.get(base, headers=headers, params=params, timeout=20)
+            if r.status_code != 200:
+                continue
+            data = r.json()
+            for ep in data.get("results", []):
+                title = ep.get("title_original") or ep.get("title") or ""
+                link = ep.get("listennotes_url") or ep.get("link") or ep.get("audio") or ""
+                desc = strip_tags(ep.get("description_original") or ep.get("description") or "")
+                if not title or not link:
+                    continue
+                items.append({
+                    "title": title.strip(),
+                    "link": link.strip(),
+                    "summary": desc.strip()[:2500],
+                    "section": "podcasts_listennotes",
+                    "source": "ListenNotes",
+                })
+        except Exception:
+            continue
+        time.sleep(0.5)
+    # Dedup
+    seen = set(); dedup = []
+    for it in items:
+        key = (it["title"].lower(), it["link"])
+        if key in seen:
+            continue
+        seen.add(key); dedup.append(it)
+    # Major-only for podcasts (non-casino) + UK focus
+    if MAJOR_ONLY_NON_CASINO:
+        dedup = [it for it in dedup if is_major(f"{it['title']} {it['summary']}", major_terms)]
+    dedup = apply_focus_filter(dedup, focus, major_terms)
+    return dedup[:MAX_ITEMS_PER_SECTION] if MAX_ITEMS_PER_SECTION > 0 else dedup
+
+# ----------- Render (cards) ----------- #
+def summarize(items, name):
+    """
+    Renders a section as 'cards'.
+    Each item -> ONE short paragraph in English + ONE short paragraph in Hebrew + Link button.
+    """
+    if not items:
+        return ""
+
+    def section_title(n):
+        titles = {
+            "news_rss": "Online Casino — UK Focus",
+            "poker_rss": "Poker — Major Only (UK)",
+            "bingo_rss": "Bingo — Major Only (UK)",
+            "podcasts_listennotes": "Podcasts — Major Only (UK)",
+        }
+        return titles.get(n, n)
+
+    cards_html = []
+    for it in items:
+        # Ask for strict JSON to keep one short paragraph per language
+        prompt = (
+            "You are a journalist for the online gambling industry.\n"
+            "Write one concise paragraph in English (max 2 sentences) that captures the key facts.\n"
+            "Also write one concise paragraph in Hebrew (max 2 sentences).\n"
+            "Return ONLY valid JSON: {\"en\": \"...\", \"he\": \"...\"}\n\n"
+            f"Title: {it['title']}\n"
+            f"Source URL: {it['link']}\n"
+            f"Feed Summary: {it['summary']}"
+        )
+        en, he = "", ""
+        try:
+            resp = client.chat.completions.create(
+                model=MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+            )
+            raw = resp.choices[0].message.content.strip()
+            try:
+                parsed = json.loads(raw)
+                en = (parsed.get("en") or "").strip()
+                he = (parsed.get("he") or "").strip()
+            except Exception:
+                en = raw.strip()
+                he = ""
+        except Exception:
+            en = "Brief summary unavailable — see source."
+            he = "סיכום לא זמין כרגע — ראו מקור."
+
+        safe_title = html.escape(it["title"])
+        safe_link  = html.escape(it["link"])
+        safe_en    = html.escape(en)
+        safe_he    = html.escape(he)
+
+        card = (
+            '<div style="border:1px solid #e6e8eb;border-radius:12px;'
+            'background:#ffffff;box-shadow:0 1px 3px rgba(0,0,0,0.05);'
+            'padding:16px;margin:12px 0;">'
+              f'<div style="font-size:16px;font-weight:700;margin:0 0 8px;">{safe_title}</div>'
+              f'<p style="margin:0 0 6px;line-height:1.5;font-size:14px;color:#1f2937;">{safe_en}</p>'
+              f'<p dir="rtl" style="margin:0 12px 10px 0;line-height:1.6;font-size:14px;color:#111827;">{safe_he}</p>'
+              f'<a href="{safe_link}" target="_blank" '
+              'style="display:inline-block;padding:8px 12px;border-radius:8px;'
+              'background:#0b5fff;color:#ffffff;text-decoration:none;'
+              'font-weight:600;font-size:13px;">Open source</a>'
+            '</div>'
+        )
+        cards_html.append(card)
+
+    header = (
+        f'<div style="font-size:18px;font-weight:800;margin:24px 0 8px;'
+        'padding-bottom:6px;border-bottom:1px solid #eceff3;color:#111827;">'
+        f'{section_title(name)}</div>'
+    )
+    return header + "".join(cards_html)
+
+def build_email(collected, uk_focus_on):
+    sections_order = ["news_rss", "poker_rss", "bingo_rss", "podcasts_listennotes"]
+
+    intro = (
+        "<h1 style='margin:0 0 6px;font-size:22px;font-weight:800;color:#0b1220;'>"
+        "Weekly iGaming Digest</h1>"
+        f"<p style='margin:0 0 18px;color:#4b5563;font-size:14px;'>"
+        f"{'UK-first: non-UK items included only if major.' if uk_focus_on else 'Online Casino first; Poker/Bingo/Podcasts show only major headlines.'} "
+        "Each item is one short paragraph in English and one in Hebrew, plus a source link."
+        "</p>"
+    )
+
+    # Outer container (email-friendly)
+    html_parts = [
+        '<div style="background:#f6f7f9;padding:24px 0;">'
+        '<div style="max-width:720px;margin:0 auto;background:#ffffff;'
+        'border:1px solid #e6e8eb;border-radius:14px;box-shadow:0 2px 6px rgba(0,0,0,0.04);'
+        'padding:22px;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">',
+        intro
+    ]
+
+    for sec in sections_order:
+        sec_html = summarize(collected.get(sec, []), sec)
+        if sec_html:
+            html_parts.append(sec_html)
+
+    html_parts.append(
+        "<div style='margin-top:22px;padding-top:12px;border-top:1px solid #eceff3;"
+        "color:#6b7280;font-size:12px;'>"
+        "This digest is auto-generated. Sources are linked on each card."
+        "</div></div></div>"
+    )
+    html_body = "".join(html_parts)
+    plain = "Weekly iGaming Digest (open HTML for rich layout)."
+    return plain, html_body
+
+# ----------- Email & logging ----------- #
+def send_mail(subject, plain, html_body):
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = subject
+    msg['From'] = FROM_EMAIL
+    msg['To'] = TO_EMAIL
+    msg.attach(MIMEText(plain, 'plain', 'utf-8'))
+    msg.attach(MIMEText(html_body, 'html', 'utf-8'))
+    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+        server.starttls()
+        server.login(SMTP_USER, SMTP_PASS)
+        server.sendmail(FROM_EMAIL, [TO_EMAIL], msg.as_string())
+
+def try_log_to_sheets(collected):
+    if not HAS_SHEETS or not GOOGLE_SERVICE_ACCOUNT_JSON:
+        return
+    try:
+        info = json.loads(GOOGLE_SERVICE_ACCOUNT_JSON)
+        creds = Credentials.from_service_account_info(info, scopes=[
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ])
+        gc = gspread.authorize(creds)
+        try:
+            sh = gc.open(SHEETS_SPREADSHEET)
+        except Exception:
+            sh = gc.create(SHEETS_SPREADSHEET)
+        today = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+        try:
+            ws = sh.worksheet(today)
+        except Exception:
+            ws = sh.add_worksheet(title=today, rows=1000, cols=6)
+            ws.update('A1:F1', [["section","title","link","snippet","source","logged_at_utc"]])
+        rows = []
+        now = datetime.datetime.utcnow().isoformat()
+        for section, arr in collected.items():
+            for it in arr:
+                snippet = (it.get("summary","")[:200]).replace("\n"," ")
+                rows.append([section, it.get("title",""), it.get("link",""), snippet, it.get("source",""), now])
+        if rows:
+            ws.append_rows(rows, value_input_option="USER_ENTERED")
+    except Exception as e:
+        print("Sheets logging skipped/error:", e)
+
+# ----------- Main ----------- #
+if __name__ == "__main__":
+    src = load_sources()
+    focus = parse_focus(src)  # UK focus config (may be None)
+    major_terms = src.get("major_keywords", [])
+
+    collected = {}
+
+    # RSS sections
+    for section in ["news_rss", "poker_rss", "bingo_rss"]:
+        urls = src.get(section, []) or []
+        items = collect_rss_items(section, urls)
+        # Dedup
+        seen = set(); ded = []
+        for it in items:
+            k = (it["title"].lower(), it["link"])
+            if k in seen:
+                continue
+            seen.add(k); ded.append(it)
+        # Major-only for non-casino
+        if section in ("poker_rss", "bingo_rss") and MAJOR_ONLY_NON_CASINO:
+            ded = [it for it in ded if is_major(f"{it['title']} {it['summary']}", major_terms)]
+        # UK focus filter
+        ded = apply_focus_filter(ded, focus, major_terms)
+        if MAX_ITEMS_PER_SECTION > 0:
+            ded = ded[:MAX_ITEMS_PER_SECTION]
+        collected[section] = ded
+
+    # Podcasts via ListenNotes
+    ln_queries = src.get("podcasts_listennotes_queries", []) or []
+    ln_items = collect_listennotes_items(ln_queries, major_terms, focus)
+    collected["podcasts_listennotes"] = ln_items
+
+    try_log_to_sheets(collected)
+    plain, html_body = build_email(collected, uk_focus_on=bool(focus))
+    today = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+    subject = f"Weekly Gambling Digest — {today} (UK Focus)"
+    send_mail(subject, plain, html_body)
+    print("Digest prepared and (if SMTP is valid) sent.")
