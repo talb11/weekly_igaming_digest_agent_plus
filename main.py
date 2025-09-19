@@ -199,11 +199,12 @@ def collect_listennotes_items(queries, major_terms, focus):
     dedup = apply_focus_filter(dedup, focus, major_terms)
     return dedup[:MAX_ITEMS_PER_SECTION] if MAX_ITEMS_PER_SECTION > 0 else dedup
 
-# ----------- Render (cards) ----------- #
+# ----------- Render (cards) with robust summaries ----------- #
 def summarize(items, name):
     """
-    Renders a section as 'cards'.
+    Render a section as 'cards'.
     Each item -> ONE short paragraph in English + ONE short paragraph in Hebrew + Link button.
+    Robust: JSON mode -> plain delimiter -> local fallback (never empty).
     """
     if not items:
         return ""
@@ -217,37 +218,67 @@ def summarize(items, name):
         }
         return titles.get(n, n)
 
-    cards_html = []
-    for it in items:
-        # Ask for strict JSON to keep one short paragraph per language
-        prompt = (
+    def llm_two_paras(it):
+        # 1) Try strict JSON mode (preferred)
+        prompt_json = (
             "You are a journalist for the online gambling industry.\n"
-            "Write one concise paragraph in English (max 2 sentences) that captures the key facts.\n"
+            "Write one concise paragraph in English (max 2 sentences) with key facts.\n"
             "Also write one concise paragraph in Hebrew (max 2 sentences).\n"
-            "Return ONLY valid JSON: {\"en\": \"...\", \"he\": \"...\"}\n\n"
+            'Return ONLY valid JSON: {"en": "...", "he": "..."}\n\n'
             f"Title: {it['title']}\n"
             f"Source URL: {it['link']}\n"
             f"Feed Summary: {it['summary']}"
         )
-        en, he = "", ""
         try:
             resp = client.chat.completions.create(
                 model=MODEL,
-                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                messages=[{"role": "user", "content": prompt_json}],
                 temperature=0.2,
             )
             raw = resp.choices[0].message.content.strip()
-            try:
-                parsed = json.loads(raw)
-                en = (parsed.get("en") or "").strip()
-                he = (parsed.get("he") or "").strip()
-            except Exception:
-                # If not JSON, fall back to raw text as EN only
-                en = raw.strip()
-                he = ""
-        except Exception:
-            en = "Brief summary unavailable — see source."
-            he = "סיכום לא זמין כרגע — ראו מקור."
+            data = json.loads(raw)
+            en = (data.get("en") or "").strip()
+            he = (data.get("he") or "").strip()
+            if en or he:
+                return en, he
+        except Exception as e1:
+            print("LLM JSON mode error:", e1)
+
+        # 2) Plain text with delimiter
+        prompt_delim = (
+            "You are a journalist for the online gambling industry.\n"
+            "Write two concise paragraphs: first English (max 2 sentences), second Hebrew (max 2 sentences).\n"
+            "Separate them with a single line: ---\n\n"
+            f"Title: {it['title']}\n"
+            f"Source URL: {it['link']}\n"
+            f"Feed Summary: {it['summary']}"
+        )
+        try:
+            resp = client.chat.completions.create(
+                model=MODEL,
+                messages=[{"role": "user", "content": prompt_delim}],
+                temperature=0.2,
+            )
+            text = resp.choices[0].message.content.strip()
+            parts = text.split("\n---\n", 1)
+            en = parts[0].strip()
+            he = parts[1].strip() if len(parts) > 1 else ""
+            if en or he:
+                return en, he
+        except Exception as e2:
+            print("LLM delimiter mode error:", e2)
+
+        # 3) Local fallback from RSS (never empty, no ugly placeholders)
+        snippet = (it.get("summary") or it.get("title") or "").strip()
+        snippet = " ".join(snippet.split())[:300]
+        en = snippet or "See source."
+        he = ""  # We avoid placeholder Hebrew if LLM failed; card will hide empty paragraph.
+        return en, he
+
+    cards_html = []
+    for it in items:
+        en, he = llm_two_paras(it)
 
         safe_title = html.escape(it["title"])
         safe_link  = html.escape(it["link"])
@@ -260,7 +291,12 @@ def summarize(items, name):
             'padding:16px;margin:12px 0;">'
               f'<div style="font-size:16px;font-weight:700;margin:0 0 8px;">{safe_title}</div>'
               f'<p style="margin:0 0 6px;line-height:1.5;font-size:14px;color:#1f2937;">{safe_en}</p>'
+        )
+        if safe_he:
+            card += (
               f'<p dir="rtl" style="margin:0 12px 10px 0;line-height:1.6;font-size:14px;color:#111827;">{safe_he}</p>'
+            )
+        card += (
               f'<a href="{safe_link}" target="_blank" '
               'style="display:inline-block;padding:8px 12px;border-radius:8px;'
               'background:#0b5fff;color:#ffffff;text-decoration:none;'
