@@ -89,7 +89,7 @@ focus:
   # Company/operator/brand cues that imply UK relevance
   companies:
     - william hill
-    - 888
+    - "888"
     - entain
     - ladbrokes
     - coral
@@ -110,6 +110,7 @@ focus:
     - kindred
     - unibet
     - national lottery
+    - Mr Q
   # Domain suffixes that imply UK content
   domain_suffixes:
     - ".co.uk"
