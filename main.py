@@ -17,7 +17,7 @@ except Exception:
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+MODEL = os.getenv("OPENAI_MODEL", "gpt-5")
 TO_EMAIL = os.getenv("TO_EMAIL")
 FROM_EMAIL = os.getenv("FROM_EMAIL", os.getenv("SMTP_USER"))
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.office365.com")
