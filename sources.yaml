@@ -1,34 +1,33 @@
 # ===========================
-# Weekly iGaming Digest – Sources
-# Focus: United Kingdom (online casino first, + poker & bingo)
+# Weekly iGaming Digest – Sources (UK Focus)
 # ===========================
 
 focus:
   region: "United Kingdom"
   country_codes: ["GB", "UK"]
-  # מילים שיעזרו לסנן/לדרג גבוה תוכן רלוונטי ל-UK
+  # מילים שמאותתות על רלוונטיות ל-UK
   keywords:
     - uk
     - united kingdom
     - great britain
     - gb
     - ukgc
-    - "gambling commission"
+    - gambling commission
     - asa
     - cap
     - dcms
-    - "remote gambling"
-    - "online casino"
+    - remote gambling
+    - online casino
     - slots
     - poker
     - bingo
-    - "affordability checks"
-    - "stake limits"
-    - "statutory levy"
-    - "safer gambling"
-    - "igaming uk"
-    - "uk online casino"
-  # חברות ומותגים עם נוכחות חזקה ב-UK (גם B2B וגם B2C)
+    - affordability checks
+    - stake limits
+    - statutory levy
+    - safer gambling
+    - igaming uk
+    - uk online casino
+  # חברות/מותגים דומיננטיים ב-UK
   companies:
     - bet365
     - flutter
@@ -59,9 +58,10 @@ focus:
     - microgaming
     - white hat gaming
     - progressplay
-    - MrQ
-  # תחומי דומיין מועדפים ל-UK ורגולציה
-  domain_suffixes_prefer: [".co.uk", ".uk", ".gov.uk", ".org.uk"]
+  # סיומות דומיין מועדפות ל-UK (הקוד משתמש בשדה הזה)
+  domain_suffixes: [".co.uk", ".uk", ".gov.uk", ".org.uk"]
+
+  # דומיינים מועדפים (לא חובה, רק כהכוונה)
   domains_prefer:
     - gamblingcommission.gov.uk
     - asa.org.uk
@@ -74,36 +74,37 @@ focus:
     - casinobeats.com
     - slotbeats.com
     - igamingbusiness.com
-  # טריגרים להבלטה/הכללה גם אם זה לא קזינו טהור
-  major_keywords:
-    - merger
-    - acquisition
-    - ipo
-    - funding
-    - investment
-    - partnership
-    - fine
-    - penalty
-    - sanction
-    - enforcement
-    - regulation
-    - law
-    - legislation
-    - "stake limit"
-    - "affordability check"
-    - "statutory levy"
-    - "responsible gambling"
-    - "white paper"
-    - "market exit"
-    - "market entry"
-    - "product launch"
-    - "uk launch"
+
+# מילות מפתח לאירועים "גדולים" (יכנסו גם אם לא UK-טי)
+major_keywords:
+  - merger
+  - acquisition
+  - ipo
+  - funding
+  - investment
+  - partnership
+  - fine
+  - penalty
+  - sanction
+  - enforcement
+  - regulation
+  - law
+  - legislation
+  - stake limit
+  - affordability check
+  - statutory levy
+  - responsible gambling
+  - white paper
+  - market exit
+  - market entry
+  - product launch
+  - uk launch
 
 # ---------------------------
 # News (RSS) – iGaming UK
 # ---------------------------
 news_rss:
-  # iGaming trade media (יש RSS ודיווח קבוע על קזינו/ספקים)
+  # iGaming trade media
   - https://casinobeats.com/feed
   - https://slotbeats.com/category/developer/feed
   - https://igamingbusiness.com/company-news/feed
@@ -111,7 +112,7 @@ news_rss:
   - https://www.theguardian.com/society/gambling/rss
   # בינגו UK
   - https://bingodaily.co.uk/feed
-  # כלל-ענפי (אירופה/גלובלי – יופיע רק אם "גדול")
+  # כלל-ענפי (אירופה/גלובלי – יכללו רק אם "גדולים")
   - https://europeangaming.eu/portal/feed/
   - https://www.gamblingnews.com/feed/
 
@@ -121,51 +122,40 @@ news_rss:
 poker_rss:
   - https://www.cardplayer.com/poker-news.rss
   - https://www.pokerfuse.com/news/feed/
-  # (אם תרצה גם PokerNews: החלופות מופיעות בעמוד ה-RSS שלהם)
-  # - https://www.pokernews.com/rss/   # מפנה לעוד ערוצי RSS אצלם
+  # אפשר להוסיף ערוצים ספציפיים של PokerNews אם תרצה
 
 bingo_rss:
   - https://bingodaily.co.uk/feed
 
 # ---------------------------
-# Games & Releases (RSS) – לשיפור "5 המשחקים המעניינים ב-UK"
-# (מקורות גיימינג UK כללים; הקוד מסנן לפי פופולריות/אזכורים)
+# Games & Releases (RSS)
+# משמש לחיזוק סקשן ה-"5 משחקים". (הקוד גם מושך משחקים מ-news_rss)
 # ---------------------------
 games_rss:
+  - https://slotbeats.com/category/developer/feed    # חיזוק לפיד משחקים
+  - https://casinobeats.com/feed                     # משחרר כותרות על תכנים/לנצ'ים
+  # אופציונלי – חדשות גיימינג כלליות (לגיבוי): 
   - https://www.rockpapershotgun.com/feed
   - https://www.eurogamer.net/feed
   - https://www.vg247.com/rss
+  # שים לב: SlotCatalog אין להם RSS פומבי יציב – לכן לא נוסף כאן.
 
 # ---------------------------
 # Podcasts
-# (הקוד משתמש גם ב-ListenNotes לחיפוש וגם בפידים ישירים)
 # ---------------------------
 podcasts_listennotes_queries:
-  - "iGaming UK"
-  - "online casino UK"
-  - "UK Gambling Commission"
-  - "remote gambling UK"
-  - "slots industry"
-  - "bingo UK"
-  - "poker UK"
-  - "safer gambling UK"
-  - "Playtech Evolution Pragmatic Play UK"
-  - "Flutter Entain Bet365 UK"
+  - iGaming UK
+  - online casino UK
+  - UK Gambling Commission
+  - remote gambling UK
+  - slots industry
+  - bingo UK
+  - poker UK
+  - safer gambling UK
+  - Playtech Evolution Pragmatic Play UK
+  - Flutter Entain Bet365 UK
 
-# פידים ישירים מומלצים (כבר מאומתים)
 podcasts_rss:
   - https://feeds.transistor.fm/igaming-daily
   - https://feeds.captivate.fm/thegamblingfiles/
   - https://feeds.acast.com/public/shows/the-problem-gambling-podcast
-
-# ---------------------------
-# Trends – שאילתות לחלק "3 טרנדים"
-# ---------------------------
-trends_queries:
-  - "UK online casino trends 2025"
-  - "UK slots popularity 2025"
-  - "UKGC data online gambling 2025 site:gamblingcommission.gov.uk"
-  - "DCMS gambling policy updates 2025 site:gov.uk"
-  - "igaming content provider trends UK 2025 Evolution Pragmatic Playtech"
-  - "bingo online UK trends 2025"
-  - "poker UK market 2025"
