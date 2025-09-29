@@ -29,10 +29,15 @@ SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASS = os.getenv("SMTP_PASS")
 
 LOOKBACK_DAYS = int(os.getenv("LOOKBACK_DAYS", "7"))
-MAX_ITEMS_PER_SECTION = int(os.getenv("MAX_ITEMS_PER_SECTION", "12"))
+MAX_ITEMS_PER_SECTION = int(os.getenv("MAX_ITEMS_PER_SECTION", "12"))  # תקרת איסוף ראשונית
 MAJOR_ONLY_NON_CASINO = (os.getenv("MAJOR_ONLY_NON_CASINO", "true").lower() == "true")
 FOCUS_THRESHOLD = int(os.getenv("FOCUS_THRESHOLD", "1"))  # 0/1/2 (2=קשוח)
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+
+# Strict email layout
+GAMES_TARGET = int(os.getenv("GAMES_TARGET", "5"))
+NEWS_MAX = int(os.getenv("NEWS_MAX", "6"))
+TRENDS_TARGET = 3
 
 LISTENNOTES_API_KEY = (os.getenv("LISTENNOTES_API_KEY") or "").strip()
 GOOGLE_SERVICE_ACCOUNT_JSON = (os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON") or "").strip()
@@ -95,7 +100,7 @@ def dedup_items(items):
     seen, out = set(), []
     for it in items:
         k = (it.get("title","").lower(), it.get("link",""))
-        if k in seen: 
+        if k in seen:
             continue
         seen.add(k); out.append(it)
     return out
@@ -118,14 +123,16 @@ def parse_focus(sources):
     def norm_list(seq):
         out = []
         for x in (seq or []):
-            try: out.append(str(x).strip().lower())
-            except: pass
+            try:
+                out.append(str(x).strip().lower())
+            except Exception:
+                pass
         return out
     return {
         "region": str(focus.get("region","")).strip().lower(),
         "keywords": norm_list(focus.get("keywords")),
         "companies": norm_list(focus.get("companies")),
-        "suffixes":  norm_list(focus.get("domain_suffixes")),
+        "suffixes":  norm_list(focus.get("domain_suffixes") or focus.get("domain_suffixes_prefer") or []),
     }
 
 def host_matches_suffix(link, suffixes):
@@ -141,8 +148,8 @@ def score_focus(it, focus):
     txt = f" {(it.get('title') or '')} {(it.get('summary') or '')} {(it.get('link') or '')} ".lower()
     score = 0
     if host_matches_suffix(it.get("link",""), focus["suffixes"]): score += 2
-    score += sum(1 for k in focus["keywords"] if k in txt)
-    score += 2 * sum(1 for c in focus["companies"] if c in txt)
+    score += sum(1 for k in (focus["keywords"] or []) if k in txt)
+    score += 2 * sum(1 for c in (focus["companies"] or []) if c in txt)
     if any(h in txt for h in NON_UK_HINTS): score -= 2
     return score
 
@@ -159,7 +166,7 @@ def apply_focus_filter(items, focus, major_terms):
 # ---------- OpenAI helpers ----------
 def _llm_json(prompt, tries=2, temperature=0.2, system="You are a precise iGaming reporter. Be concise. No inventions."):
     last = None
-    for i in range(tries):
+    for _ in range(tries):
         try:
             r = client.chat.completions.create(
                 model=MODEL,
@@ -172,7 +179,7 @@ def _llm_json(prompt, tries=2, temperature=0.2, system="You are a precise iGamin
         except Exception as e:
             last = e
             time.sleep(0.8)
-            # Try once without response_format as fallback
+            # best-effort fallback (no response_format)
             try:
                 r = client.chat.completions.create(
                     model=MODEL,
@@ -195,10 +202,7 @@ def collect_listennotes_items(queries, major_terms, focus):
     headers = {"X-ListenAPI-Key": LISTENNOTES_API_KEY}
     since = int((datetime.datetime.utcnow() - datetime.timedelta(days=LOOKBACK_DAYS)).timestamp())
     for q in (queries or []):
-        params = {
-            "q": q, "type": "episode", "sort_by_date": 1,
-            "published_after": since, "safe_mode": 0, "len_min": 5
-        }
+        params = {"q": q, "type": "episode", "sort_by_date": 1, "published_after": since, "safe_mode": 0, "len_min": 5}
         try:
             r = requests.get(base, headers=headers, params=params, timeout=20)
             if r.status_code != 200:
@@ -208,7 +212,7 @@ def collect_listennotes_items(queries, major_terms, focus):
                 title = ep.get("title_original") or ep.get("title") or ""
                 link  = ep.get("listennotes_url") or ep.get("link") or ep.get("audio") or ""
                 desc  = strip_tags(ep.get("description_original") or ep.get("description") or "")
-                if not title or not link: 
+                if not title or not link:
                     continue
                 items.append({
                     "title": title.strip(),
@@ -227,20 +231,10 @@ def collect_listennotes_items(queries, major_terms, focus):
     return items[:MAX_ITEMS_PER_SECTION] if MAX_ITEMS_PER_SECTION > 0 else items
 
 # ---------- Section summaries (cards) ----------
-def summarize(items, name):
-    """Cards: EN + HE (stable JSON), fallback to delimiter, then local snippet."""
+def summarize_cards(items, title_text):
+    """Render items as cards (EN + HE)."""
     if not items:
         return ""
-
-    def section_title(n):
-        return {
-            "news_rss": "Online Casino — UK Focus",
-            "poker_rss": "Poker — Major Only (UK)",
-            "bingo_rss": "Bingo — Major Only (UK)",
-            "podcasts_listennotes": "Podcasts — Major Only (UK)",
-            "games_rss": "Game Releases — UK Focus",
-        }.get(n, n)
-
     def llm_two_paras(it):
         # 1) Strict JSON
         prompt_json = (
@@ -308,13 +302,12 @@ def summarize(items, name):
     header = (
         f'<div style="font-size:18px;font-weight:800;margin:24px 0 8px;'
         'padding-bottom:6px;border-bottom:1px solid #eceff3;color:#111827;">'
-        f'{section_title(name)}</div>'
+        f'{html.escape(title_text)}</div>'
     )
     return header + "".join(cards)
 
-# ---------- Trends (3, robust) ----------
+# ---------- Trends (3) ----------
 STOP = set("the a an and or for of to in on with by from as at is are was were be been being it this that these those not no".split())
-
 def _tokens(s):
     s = re.sub(r"[^a-zA-Z0-9 £]", " ", s or "")
     return [w.lower() for w in s.split() if len(w) > 2 and w.lower() not in STOP]
@@ -347,7 +340,7 @@ def build_trends_section(collected):
     trends = []
     try:
         data = _llm_json(prompt, temperature=0.1, system="Be precise, non-speculative. No hallucinations.")
-        trends = (data.get("trends") or [])[:3]
+        trends = (data.get("trends") or [])[:TRENDS_TARGET]
     except Exception:
         trends = []
 
@@ -371,11 +364,11 @@ def build_trends_section(collected):
     header = (
         '<div style="font-size:18px;font-weight:800;margin:24px 0 8px;'
         'padding-bottom:6px;border-bottom:1px solid #eceff3;color:#111827;">'
-        'Trends — 3 Most Notable (Global)</div>'
+        '📈 Trends — 3 Most Notable (Global)</div>'
     )
     return header + "".join(blocks)
 
-# ---------- Games (5, robust) ----------
+# ---------- Games (5) ----------
 GAME_KEYWORDS = [
     "slot", "new slot", "slots", "megaways", "jackpot", "jackpots",
     "launch", "launches", "released", "release", "unveils", "rolls out",
@@ -393,7 +386,7 @@ def is_game_item(it: dict) -> bool:
     t = f" {it.get('title','')} {it.get('summary','')} ".lower()
     return any(k in t for k in GAME_KEYWORDS) or any(s in t for s in STUDIO_KEYWORDS)
 
-def _game_score(it):
+def _game_score(it, focus):
     t = f" {it.get('title','')} {it.get('summary','')} {it.get('link','')} ".lower()
     s = 0
     if any(k in t for k in GAME_KEYWORDS): s += 2
@@ -402,26 +395,30 @@ def _game_score(it):
     if " uk " in t or "britain" in t or "united kingdom" in t or "england" in t: s += 2
     if "launch" in t or "released" in t or "unveils" in t: s += 1
     if "megaways" in t or "jackpot" in t or "live" in t or "game show" in t: s += 1
+    s += max(0, score_focus(it, focus))  # עוד הטיית UK
     if any(h in t for h in NON_UK_HINTS): s -= 2
     return s
 
-def build_games_section(collected):
-    # קח מועמדים מכל הסקטורים + games_rss אם קיים
+def build_games_section(collected, focus):
     candidates = []
-    for sec in ("games_rss", "news_rss", "bingo_rss", "poker_rss"):
+    for sec in ("news_rss", "games_rss", "bingo_rss", "poker_rss"):
         for it in (collected.get(sec) or []):
             if is_game_item(it):
                 candidates.append(it)
-
     if not candidates:
-        return ""  # אין מה להציג
+        return "", set()
 
     candidates = dedup_items(candidates)
-    ranked = sorted(candidates, key=_game_score, reverse=True)[:5]
 
-    # ניסוח EN/HE פר-פריט (יציב יותר מרשימה אחת)
+    ranked = sorted(candidates, key=lambda it: _game_score(it, focus), reverse=True)
+    top = ranked[:GAMES_TARGET]
+    if len(top) < GAMES_TARGET:
+        extra = [it for it in ranked if it not in top]
+        top += extra[:(GAMES_TARGET - len(top))]
+
     cards = []
-    for it in ranked:
+    used_links = set()
+    for it in top:
         prompt = (
             "Rewrite two concise paragraphs about the following online casino game item: "
             "first English (max 2 sentences) with key facts; second Hebrew (max 2). "
@@ -441,6 +438,7 @@ def build_games_section(collected):
         link = html.escape(it.get("link","") or "#")
         en   = html.escape(en)
         he   = html.escape(he)
+        used_links.add(it.get("link",""))
 
         cards.append(
             '<div style="border:1px solid #e6e8eb;border-radius:12px;background:#ffffff;'
@@ -456,46 +454,75 @@ def build_games_section(collected):
     header = (
         '<div style="font-size:18px;font-weight:800;margin:24px 0 8px;'
         'padding-bottom:6px;border-bottom:1px solid #eceff3;color:#111827;">'
-        'Top Games in England — 5 to Watch</div>'
+        '🎮 Top Games in England — 5 to Watch</div>'
     )
-    return header + "".join(cards)
+    return header + "".join(cards), used_links
+
+# ---------- Back to top ----------
+def _back_to_top():
+    return ("<div style='text-align:right;margin:8px 0 0'>"
+            "<a href='#top' style='font-size:12px;text-decoration:none;color:#2563eb;'>↑ Back to top</a>"
+            "</div>")
 
 # ---------- Email shell ----------
-def build_email(collected, uk_focus_on):
-    sections_order = ["news_rss", "poker_rss", "bingo_rss", "podcasts_listennotes"]
+def build_email(collected, focus):
+    # 1) Trends
+    trends_html = build_trends_section(collected)
 
+    # 2) Games (collect used links to avoid duplicates later)
+    games_html, used_links = build_games_section(collected, focus)
+
+    # 3) Online Casino — UK Focus (עד NEWS_MAX), בלי מה שכבר הופיע ב-Games
+    news = collected.get("news_rss", []) or []
+    news = [it for it in news if it.get("link") not in used_links]
+    news = news[:NEWS_MAX]
+    news_html = summarize_cards(news, "🎰 Online Casino — UK Focus")
+
+    # Compose email (strict order + TOC + anchors + icons)
     intro = (
-        "<h1 style='margin:0 0 6px;font-size:22px;font-weight:800;color:#0b1220;'>"
-        "Weekly iGaming Digest</h1>"
-        f"<p style='margin:0 0 18px;color:#4b5563;font-size:14px;'>"
-        f"{'UK-first: non-UK items included only if major.' if uk_focus_on else 'Online Casino first; Poker/Bingo/Podcasts show only major headlines.'} "
-        "Each card includes a short paragraph in English and one in Hebrew, plus a source link."
+        "<h1 style='margin:0 0 6px;font-size:22px;font-weight:800;color:#0b1220;'>Weekly iGaming Digest</h1>"
+        "<p style='margin:0 0 12px;color:#4b5563;font-size:14px;'>"
+        "📈 3 Trends · 🎮 5 Games to Watch · 🎰 Online Casino — UK Focus (up to 6). "
+        "Each card includes EN+HE summary and a source link."
         "</p>"
     )
 
     html_parts = [
-        '<div style="background:#f6f7f9;padding:24px 0;">'
-        '<div style="max-width:720px;margin:0 auto;background:#ffffff;'
+        '<div style="background:#f6f7f9;padding:24px 0;"><div style="max-width:720px;margin:0 auto;background:#ffffff;'
         'border:1px solid #e6e8eb;border-radius:14px;box-shadow:0 2px 6px rgba(0,0,0,0.04);'
-        'padding:22px;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">',
+        "padding:22px;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;'>"
+        "<a id='top'></a>",
         intro
     ]
 
-    # Trends (3)
-    thtml = build_trends_section(collected)
-    if thtml:
-        html_parts.append(thtml)
+    # TOC
+    toc_html = (
+        "<div style='display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 14px'>"
+        "<a href='#trends' style='padding:8px 10px;border:1px solid #e5e7eb;border-radius:8px;text-decoration:none;"
+        "font-size:13px;color:#111827;background:#f8fafc;'>📈 Trends</a>"
+        "<a href='#games' style='padding:8px 10px;border:1px solid #e5e7eb;border-radius:8px;text-decoration:none;"
+        "font-size:13px;color:#111827;background:#f8fafc;'>🎮 Games</a>"
+        "<a href='#news' style='padding:8px 10px;border:1px solid #e5e7eb;border-radius:8px;text-decoration:none;"
+        "font-size:13px;color:#111827;background:#f8fafc;'>🎰 Online Casino (UK)</a>"
+        "</div>"
+    )
+    html_parts.append(toc_html)
 
-    # Games (5)
-    ghtml = build_games_section(collected)
-    if ghtml:
-        html_parts.append(ghtml)
+    # Sections with anchors and back-to-top
+    if trends_html:
+        html_parts.append("<a id='trends'></a>")
+        html_parts.append(trends_html)
+        html_parts.append(_back_to_top())
 
-    # Regular sections
-    for sec in sections_order:
-        sec_html = summarize(collected.get(sec, []), sec)
-        if sec_html:
-            html_parts.append(sec_html)
+    if games_html:
+        html_parts.append("<a id='games'></a>")
+        html_parts.append(games_html)
+        html_parts.append(_back_to_top())
+
+    if news_html:
+        html_parts.append("<a id='news'></a>")
+        html_parts.append(news_html)
+        html_parts.append(_back_to_top())
 
     if DEBUG:
         counts = {sec: len(collected.get(sec, [])) for sec in ["news_rss","poker_rss","bingo_rss","podcasts_listennotes","games_rss"]}
@@ -504,19 +531,17 @@ def build_email(collected, uk_focus_on):
             "background:#fafafa;color:#374151;font-size:12px;'>"
             f"<div><b>Debug</b></div>"
             f"<div>Counts: {counts}</div>"
-            f"<div>FOCUS_THRESHOLD={FOCUS_THRESHOLD} | LOOKBACK_DAYS={LOOKBACK_DAYS}</div>"
+            f"<div>FOCUS_THRESHOLD={FOCUS_THRESHOLD} | LOOKBACK_DAYS={LOOKBACK_DAYS} | NEWS_MAX={NEWS_MAX} | GAMES_TARGET={GAMES_TARGET}</div>"
             "</div>"
         )
         html_parts.append(dbg)
 
     html_parts.append(
-        "<div style='margin-top:22px;padding-top:12px;border-top:1px solid #eceff3;"
-        "color:#6b7280;font-size:12px;'>"
-        "This digest is auto-generated. Sources are linked on each card."
-        "</div></div></div>"
+        "<div style='margin-top:22px;padding-top:12px;border-top:1px solid #eceff3;color:#6b7280;font-size:12px;'>"
+        "This digest is auto-generated. Sources are linked on each card.</div></div></div>"
     )
     html_body = "".join(html_parts)
-    plain = "Weekly iGaming Digest (open HTML for rich layout)."
+    plain = "Weekly iGaming Digest (open HTML for full layout)."
     return plain, html_body
 
 # ---------- Email ----------
@@ -568,7 +593,8 @@ def try_log_to_sheets(collected):
 if __name__ == "__main__":
     src = load_sources()
     focus = parse_focus(src)
-    major_terms = src.get("major_keywords", [])
+    # major_keywords יכולים להופיע גם בשורש וגם בתוך focus (לנוחות)
+    major_terms = src.get("major_keywords", []) or src.get("focus", {}).get("major_keywords", [])
 
     collected = {}
 
@@ -584,12 +610,12 @@ if __name__ == "__main__":
             items = items[:MAX_ITEMS_PER_SECTION]
         collected[section] = items
 
-    # Podcasts
+    # Podcasts (לא מוצג כרגע במייל, אבל נשמר ללוג/טרנדים)
     ln_queries = src.get("podcasts_listennotes_queries", []) or []
     collected["podcasts_listennotes"] = collect_listennotes_items(ln_queries, major_terms, focus)
 
     try_log_to_sheets(collected)
-    plain, html_body = build_email(collected, uk_focus_on=bool(focus))
+    plain, html_body = build_email(collected, focus)
     today = datetime.datetime.utcnow().strftime("%Y-%m-%d")
     subject = f"Weekly Gambling Digest — {today} (UK Focus)"
     send_mail(subject, plain, html_body)
