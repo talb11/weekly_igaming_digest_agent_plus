@@ -1,4 +1,4 @@
-import os, feedparser, yaml, requests, datetime, time, html, json
+import os, feedparser, yaml, requests, datetime, time, html, json, re
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import smtplib
@@ -199,22 +199,20 @@ def collect_listennotes_items(queries, major_terms, focus):
     dedup = apply_focus_filter(dedup, focus, major_terms)
     return dedup[:MAX_ITEMS_PER_SECTION] if MAX_ITEMS_PER_SECTION > 0 else dedup
 
-# ----------- Trend extraction (new) ----------- #
+# ----------- Trends (robust: always 3) ----------- #
 def build_trends_section(collected):
     """
     Build 'Trends' section (3 global trends) from the collected items (all sections).
-    Returns HTML string (empty if nothing to show).
+    Always returns up to 3 trends with EN+HE (fallbacks ensure non-empty).
     """
-    # Gather snippets
     pool = []
     for sec, arr in collected.items():
         for it in arr:
             pool.append(f"- {it.get('title','')}: {it.get('summary','')[:220]}")
     if not pool:
-        return ""
+        return ""  # nothing to analyze
 
-    # Limit context size
-    context = "\n".join(pool[:80])  # ~80 headlines/snippets
+    context = "\n".join(pool[:120])  # cap context
     prompt = (
         "You are an industry analyst for online gambling (iGaming).\n"
         f"Using the headlines & snippets from the last {LOOKBACK_DAYS} days below, "
@@ -240,22 +238,26 @@ def build_trends_section(collected):
         data = json.loads(resp.choices[0].message.content.strip())
         for t in (data.get("trends") or [])[:3]:
             trends.append({
-                "title_en": str(t.get("title_en","")).strip(),
-                "desc_en": str(t.get("desc_en","")).strip(),
-                "title_he": str(t.get("title_he","")).strip(),
-                "desc_he": str(t.get("desc_he","")).strip(),
+                "title_en": (t.get("title_en") or "").strip(),
+                "desc_en": (t.get("desc_en") or "").strip(),
+                "title_he": (t.get("title_he") or "").strip(),
+                "desc_he": (t.get("desc_he") or "").strip(),
             })
     except Exception as e:
-        # Fallback: simple heuristic trends from words frequency (very light)
+        print("Trends JSON mode error:", e)
+
+    # Fallbacks / fill to 3
+    if len(trends) < 3:
         text = " ".join(pool).lower()
         guesses = []
-        if "regulat" in text or "ukgc" in text or "dcm" in text or "asa" in text:
-            guesses.append(("Regulation & Compliance", "Increased regulatory scrutiny and enforcement actions.", "רגולציה וציות", "הגברת פיקוח ואכיפה רגולטורית."))
+        if "regulat" in text or "ukgc" in text or "asa" in text or "dcms" in text:
+            guesses.append(("Regulation & Compliance", "Rising scrutiny and enforcement; stake limits & affordability.", "רגולציה וציות", "הגברת פיקוח, מגבלות הימור ובדיקות יכולת."))
         if "merger" in text or "acquisition" in text or "ipo" in text or "funding" in text:
-            guesses.append(("M&A and Funding", "Active deal-making and capital moves among operators and suppliers.", "מיזוגים וגיוסים", "פעילות עסקאות וגיוסים אצל מפעילים וספקים."))
-        if "live" in text or "megaways" in text or "jackpot" in text:
-            guesses.append(("Content & Live Expansion", "Push into live game shows, jackpots and new slot mechanics.", "תוכן ולייב", "דחיפה ללייב גיים-שואו, ג׳קפוטים ומכניקות חדשות."))
-        for g in guesses[:3]:
+            guesses.append(("M&A and Funding", "Active deal-making across operators/suppliers.", "מיזוגים וגיוסים", "עסקאות וגיוסים אצל מפעילים וספקים."))
+        if "jackpot" in text or "megaways" in text or "live" in text or "game show" in text:
+            guesses.append(("Content & Live Expansion", "Push into live game shows, jackpots and new slot mechanics.", "תוכן ולייב", "גידול בלייב גיים-שואו, ג׳קפוטים ומכניקות חדשות."))
+        for g in guesses:
+            if len(trends) >= 3: break
             trends.append({"title_en": g[0], "desc_en": g[1], "title_he": g[2], "desc_he": g[3]})
 
     if not trends:
@@ -264,8 +266,8 @@ def build_trends_section(collected):
     # Render HTML
     blocks = []
     for t in trends[:3]:
-        te = html.escape(t["title_en"]); de = html.escape(t["desc_en"])
-        th = html.escape(t["title_he"]); dh = html.escape(t["desc_he"])
+        te = html.escape(t["title_en"] or "Trend"); de = html.escape(t["desc_en"] or "")
+        th = html.escape(t["title_he"] or "מגמה"); dh = html.escape(t["desc_he"] or "")
         block = (
             '<div style="border:1px dashed #d7dbe2;border-radius:12px;'
             'background:#fbfcff;padding:14px 16px;margin:10px 0;">'
@@ -284,7 +286,7 @@ def build_trends_section(collected):
     )
     return header + "".join(blocks)
 
-# ----------- Top Games in England (new) ----------- #
+# ----------- Top Games in England (robust: always 5 with links) ----------- #
 GAME_KEYWORDS = [
     "slot", "new slot", "slots", "megaways", "jackpot", "jackpots",
     "launch", "launches", "released", "release", "unveils", "rolls out",
@@ -304,13 +306,39 @@ def is_game_item(it: dict) -> bool:
     has_studio = any(s in text for s in STUDIO_KEYWORDS)
     return has_kw or has_studio
 
+def _normalize_name(s):
+    s = (s or "").lower()
+    s = re.sub(r'[^a-z0-9\s\-\&\']', ' ', s)
+    s = re.sub(r'\s+', ' ', s).strip()
+    return s
+
+def _best_link_for_name(name, candidates):
+    """Find a good link among candidates whose title matches the given name."""
+    target = _normalize_name(name)
+    best = ""
+    best_score = 0
+    for it in candidates:
+        t = _normalize_name(it.get("title",""))
+        score = 0
+        # simple token overlap
+        tset = set(t.split())
+        for tok in set(target.split()):
+            if tok and tok in tset:
+                score += 1
+        # prefer .co.uk/.uk
+        if ".co.uk" in (it.get("link","").lower()) or it.get("link","").lower().endswith(".uk"):
+            score += 1
+        if score > best_score:
+            best_score = score
+            best = it.get("link","")
+    return best
+
 def build_games_section(collected):
     """
-    Build 'Top Games in England' list (max 5) from UK-focused news items.
-    Uses LLM ranking; falls back to heuristic if needed.
+    Build 'Top Games in England' list (aim 5) from UK-focused news items.
+    Uses LLM ranking; fills/repairs missing fields and guarantees links and copy.
     """
     candidates = [it for it in (collected.get("news_rss") or []) if is_game_item(it)]
-    # If not enough in news_rss, try others
     if len(candidates) < 5:
         for sec in ("bingo_rss", "poker_rss"):
             for it in (collected.get(sec) or []):
@@ -323,21 +351,21 @@ def build_games_section(collected):
         k = (it.get("title","").lower(), it.get("link",""))
         if k in seen: continue
         seen.add(k); uniq.append(it)
-    candidates = uniq[:25]  # cap list
+    candidates = uniq[:30]
 
     if not candidates:
-        return ""
+        return ""  # nothing to show
 
-    # Prepare compact list for LLM
+    # Prepare for LLM
     lines = []
     for i, it in enumerate(candidates, 1):
-        lines.append(f"{i}. {it.get('title','')}\nURL: {it.get('link','')}\nSnippet: {it.get('summary','')[:200]}")
+        lines.append(f"{i}. {it.get('title','')}\nURL: {it.get('link','')}\nSnippet: {it.get('summary','')[:220]}")
     context = "\n\n".join(lines)
 
     prompt = (
         "You are an expert UK iGaming curator.\n"
-        "From the following candidate items (mostly UK-focused), choose the 5 most interesting ONLINE CASINO games "
-        "(slots/live/table/crash etc.) relevant to the England/UK market this week. Prefer UK relevance, "
+        "From the following candidate items (mostly UK-focused), choose up to five of the MOST INTERESTING ONLINE CASINO games "
+        "(slots/live/table/crash etc.) relevant to the England/UK market THIS WEEK. Prefer UK relevance, "
         "innovation, big brands/operators, or notable mechanics.\n"
         "Return ONLY valid JSON with this schema:\n"
         '{ "games": [ { "name": "...", "en": "...", "he": "...", "link": "..." }, ... up to 5 ] }\n\n'
@@ -355,40 +383,69 @@ def build_games_section(collected):
         data = json.loads(resp.choices[0].message.content.strip())
         for g in (data.get("games") or [])[:5]:
             games.append({
-                "name": str(g.get("name","")).strip(),
-                "en": str(g.get("en","")).strip(),
-                "he": str(g.get("he","")).strip(),
-                "link": str(g.get("link","")).strip(),
+                "name": (g.get("name") or "").strip(),
+                "en":   (g.get("en") or "").strip(),
+                "he":   (g.get("he") or "").strip(),
+                "link": (g.get("link") or "").strip(),
             })
     except Exception as e:
-        # Heuristic fallback: take first 5, prefer those with .co.uk or 'uk' in title
+        print("Games JSON mode error:", e)
+
+    # Repair / fill:
+    picked_names = set()
+    fixed = []
+    for g in games:
+        name = g["name"] or "(Untitled Game)"
+        en   = g["en"] or ""
+        he   = g["he"] or ""
+        link = g["link"] or _best_link_for_name(name, candidates)
+        if not en:
+            # try to harvest from matching candidate snippet
+            best = None; best_score = -1
+            for it in candidates:
+                t = _normalize_name(it.get("title",""))
+                score = len(set(_normalize_name(name).split()) & set(t.split()))
+                if score > best_score:
+                    best_score = score; best = it
+            if best:
+                en = (best.get("summary") or best.get("title") or "")[:160].strip()
+        fixed.append({"name": name, "en": en or name, "he": he, "link": link or "#" })
+        picked_names.add(_normalize_name(name))
+
+    # If less than 5, top-up from candidates not already used
+    if len(fixed) < 5:
         def score(it):
-            t = f"{it.get('title','')} {it.get('summary','')} {it.get('link','')}".lower()
+            t = (it.get("title","") + " " + it.get("summary","")).lower()
             s = 0
-            if ".co.uk" in it.get("link","").lower() or ".uk" in it.get("link","").lower(): s += 2
+            if ".co.uk" in it.get("link","").lower() or it.get("link","").lower().endswith(".uk"): s += 2
             if " uk " in f" {t} ": s += 1
             if any(k in t for k in ["launch", "megaways", "jackpot", "live"]): s += 1
-            return -s  # sort ascending -> higher score first when negative
-        best = sorted(candidates, key=score)[:5]
-        for it in best:
-            games.append({
+            return -s
+        for it in sorted(candidates, key=score):
+            nm = _normalize_name(it.get("title",""))
+            if nm in picked_names:
+                continue
+            fixed.append({
                 "name": it.get("title","").strip(),
-                "en": (it.get("summary") or it.get("title") or "")[:140].strip(),
-                "he": "",
-                "link": it.get("link",""),
+                "en":   (it.get("summary") or it.get("title") or "")[:160].strip(),
+                "he":   "",
+                "link": it.get("link","") or "#"
             })
+            picked_names.add(nm)
+            if len(fixed) >= 5:
+                break
 
-    if not games:
+    if not fixed:
         return ""
 
     # Render HTML
     cards = []
-    for g in games:
+    for g in fixed[:5]:
         name = html.escape(g["name"] or "")
         en   = html.escape(g["en"] or "")
         he   = html.escape(g["he"] or "")
         link = html.escape(g["link"] or "#")
-        card = (
+        cards.append(
             '<div style="border:1px solid #e6e8eb;border-radius:12px;'
             'background:#ffffff;box-shadow:0 1px 3px rgba(0,0,0,0.05);'
             'padding:14px;margin:10px 0;">'
@@ -401,7 +458,6 @@ def build_games_section(collected):
               'font-weight:600;font-size:12.5px;">Open source</a>'
             '</div>'
         )
-        cards.append(card)
 
     header = (
         '<div style="font-size:18px;font-weight:800;margin:24px 0 8px;'
@@ -536,7 +592,6 @@ def build_email(collected, uk_focus_on):
         "</p>"
     )
 
-    # Outer container (email-friendly)
     html_parts = [
         '<div style="background:#f6f7f9;padding:24px 0;">'
         '<div style="max-width:720px;margin:0 auto;background:#ffffff;'
@@ -545,12 +600,12 @@ def build_email(collected, uk_focus_on):
         intro
     ]
 
-    # New: Trends (3)
+    # Trends (3)
     trends_html = build_trends_section(collected)
     if trends_html:
         html_parts.append(trends_html)
 
-    # New: Top Games in England (5)
+    # Top Games in England (5)
     games_html = build_games_section(collected)
     if games_html:
         html_parts.append(games_html)
