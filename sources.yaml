@@ -1,82 +1,120 @@
 # ===========================
-# Weekly iGaming Digest – Sources (UK Focus)
+# Weekly iGaming Digest — Sources (UK Focus)
 # ===========================
 
 focus:
   region: "United Kingdom"
   country_codes: ["GB", "UK"]
-  # מילים שמאותתות על רלוונטיות ל-UK
+
+  # Signals for UK relevance (used in scoring)
   keywords:
     - uk
     - united kingdom
     - great britain
-    - gb
+    - britain
+    - england
+    - scotland
+    - wales
     - ukgc
     - gambling commission
-    - asa
-    - cap
     - dcms
-    - remote gambling
+    - hm treasury
+    - treasury
+    - levy
+    - duty
+    - tax
+    - remote gaming duty
+    - statutory levy
+    - affordability checks
+    - stake limits
+    - safer gambling
     - online casino
     - slots
     - poker
     - bingo
-    - affordability checks
-    - stake limits
-    - statutory levy
-    - safer gambling
+    - igaming
     - igaming uk
     - uk online casino
-  # חברות/מותגים דומיננטיים ב-UK
+
+  # Operator / supplier names that boost UK relevance
   companies:
-    - bet365
+    - william hill
     - flutter
     - entain
-    - william hill
-    - 888 holdings
-    - betfred
+    - ladbrokes
+    - coral
+    - 888
+    - bet365
+    - sky betting
+    - paddy power
+    - betfair
     - kindred
     - unibet
-    - sky betting
-    - sky vegas
     - rank group
-    - grosvenor
     - mecca bingo
-    - tombola
     - buzz bingo
-    - paddy power
-    - betway
-    - games global
-    - light & wonder
-    - playtech
-    - pragmatic play
+    - tombola
+    - gamesys
+    - betfred
+    - virgin games
+    # Suppliers (content / platforms)
+    - softswiss
     - evolution
-    - relax gaming
-    - push gaming
+    - pragmatic play
+    - playtech
+    - light & wonder
+    - scientific games
+    - games global
     - blueprint gaming
-    - inspired entertainment
-    - microgaming
-    - white hat gaming
-    - progressplay
-  # סיומות דומיין מועדפות ל-UK (הקוד משתמש בשדה הזה)
+    - relax gaming
+    - red tiger
+    - big time gaming
+    - btg
+    - yggdrasil
+    - elk studios
+    - nolimit city
+    - hacksaw
+    - push gaming
+    - play'n go
+    - quickspin
+
+  # UK-ish domains (adds score if link ends with these)
   domain_suffixes: [".co.uk", ".uk", ".gov.uk", ".org.uk"]
 
-  # דומיינים מועדפים (לא חובה, רק כהכוונה)
-  domains_prefer:
-    - gamblingcommission.gov.uk
-    - asa.org.uk
-    - cap.org.uk
-    - gov.uk
-    - parliament.uk
-    - bbc.co.uk
-    - theguardian.com
+  # Prefer/boost stories from these domains even if not .uk
+  source_domains_prefer:
+    - egr.global
+    - softswiss.com
+    - igamingbusiness.com
     - sbcnews.co.uk
     - casinobeats.com
     - slotbeats.com
-    - igamingbusiness.com
+    - europeangaming.eu
+    - gamblingnews.com
+    - yogonet.com
+    - theguardian.com
+    - bbc.co.uk
+    - gamblingcommission.gov.uk
+    - gov.uk
 
-# מילות מפתח לאירועים "גדולים" (יכנסו גם אם לא UK-טי)
+  # Nudge trends generator (only if supported by data)
+  trend_hints:
+    - gambling tax
+    - remote gaming duty
+    - levy
+    - stake limits
+    - affordability checks
+    - illegal market
+    - enforcement
+    - white paper
+
+# Items with these words are considered "major" even if not strongly UK
 major_keywords:
+  - tax
+  - duty
+  - levy
+  - treasury
+  - budget
   - merger
   - acquisition
   - ipo
@@ -90,156 +128,80 @@ major_keywords:
   - regulation
   - law
   - legislation
+  - licensing
   - stake limit
   - affordability check
-  - statutory levy
-  - responsible gambling
-  - white paper
   - market exit
   - market entry
   - product launch
   - uk launch
 
 # ---------------------------
-# News (RSS) – iGaming UK
+# News (RSS) — UK / iGaming
 # ---------------------------
 news_rss:
-  # iGaming trade media
-  - https://casinobeats.com/feed
-  - https://slotbeats.com/category/developer/feed
-  - https://igamingbusiness.com/company-news/feed
-  # מדיה/רגולציה UK
-  - https://www.theguardian.com/society/gambling/rss
-  # בינגו UK
-  - https://bingodaily.co.uk/feed
-  # כלל-ענפי (אירופה/גלובלי – יכללו רק אם "גדולים")
+  - https://www.sbcnews.co.uk/feed/
+  - https://www.casinobeats.com/feed/
+  - https://slotbeats.com/category/developer/feed/
+  - https://www.igamingbusiness.com/feed/
   - https://europeangaming.eu/portal/feed/
   - https://www.gamblingnews.com/feed/
+  - https://www.theguardian.com/society/gambling/rss
+  - https://www.theguardian.com/sport/betting/rss
+  # Tip: EGR has limited public RSS. We inject key EGR URLs via `must_include.urls` below.
 
 # ---------------------------
 # Poker & Bingo (RSS)
 # ---------------------------
 poker_rss:
+  - https://www.pokernews.com/rss/all.xml
   - https://www.cardplayer.com/poker-news.rss
   - https://www.pokerfuse.com/news/feed/
-  # אפשר להוסיף ערוצים ספציפיים של PokerNews אם תרצה
 
 bingo_rss:
   - https://bingodaily.co.uk/feed
+  - https://www.whichbingo.co.uk/news/feed/
 
 # ---------------------------
 # Games & Releases (RSS)
-# משמש לחיזוק סקשן ה-"5 משחקים". (הקוד גם מושך משחקים מ-news_rss)
+# Fuels the “🎮 Top Trending Games in England — 5 to Watch”
 # ---------------------------
-games_rss:
-  - https://slotbeats.com/category/developer/feed    # חיזוק לפיד משחקים
-  - https://casinobeats.com/feed                     # משחרר כותרות על תכנים/לנצ'ים
-  # אופציונלי – חדשות גיימינג כלליות (לגיבוי): 
-  - https://www.rockpapershotgun.com/feed
-  - https://www.eurogamer.net/feed
-  - https://www.vg247.com/rss
-  # שים לב: SlotCatalog אין להם RSS פומבי יציב – לכן לא נוסף כאן.
-
-# ---------------------------
-# Podcasts
-# ---------------------------
-podcasts_listennotes_queries:
-  - iGaming UK
-  - online casino UK
-  - UK Gambling Commission
-  - remote gambling UK
-  - slots industry
-  - bingo UK
-  - poker UK
-  - safer gambling UK
-  - Playtech Evolution Pragmatic Play UK
-  - Flutter Entain Bet365 UK
-
-podcasts_rss:
-  - https://feeds.transistor.fm/igaming-daily
-  - https://feeds.captivate.fm/thegamblingfiles/
-  - https://feeds.acast.com/public/shows/the-problem-gambling-podcast
-  focus:
-  region: uk
-  keywords:
-    - uk
-    - britain
-    - england
-    - hm treasury
-    - dcms
-    - levy
-    - duty
-    - tax
-  companies:
-    - flutter
-    - entain
-    - 888
-    - william hill
-    - bet365
-    - kindred
-    - softswiss
-    - evolution
-    - pragmatic play
-  domain_suffixes: [".co.uk", ".uk", ".gov.uk", ".org.uk"]
-  source_domains_prefer:
-    - egr.global
-    - softswiss.com
-    - slotbeats.com
-    - igamingbusiness.com
-    - europeangaming.eu
-  trend_hints:
-    - gambling tax
-    - remote gaming duty
-    - levy
-    - casino duty
-    - stake limits
-
-major_keywords:
-  - tax
-  - duty
-  - levy
-  - treasury
-  - black market
-  - stake limits
-  - merger
-  - acquisition
-  - fine
-  - enforcement
-  - regulation
-  - licensing
-
-news_rss:
-  - https://www.igamingbusiness.com/feed/          # iGB (broad, includes UK)
-  - https://europeangaming.eu/portal/feed/         # Euro Gaming (frequent SOFTSWISS)
-  - https://www.sbcnews.co.uk/feed/                # SBC News UK
-  - https://www.casinobeats.com/feed/              # CasinoBeats
-  - https://www.theguardian.com/sport/betting/rss  # Guardian betting (UK)
-  # (EGR’s public RSS is limited; we inject specific EGR links via must_include.urls)
-
 games_rss:
   - https://slotbeats.com/feed/
   - https://slotbeats.com/category/developer/feed/
   - https://www.casinobeats.com/category/slot-news/feed/
 
+# Used only if we still lack 5 games (deeper lookback)
 games_fallback_rss:
   - https://slotbeats.com/category/slot-releases/feed/
   - https://www.casinobeats.com/category/slot-developer-news/feed/
 
-poker_rss:
-  - https://www.pokernews.com/rss/all.xml
-  - https://www.cardplayer.com/rss/news.xml
-
-bingo_rss:
-  - https://www.bingocall.co.uk/feed/
-  - https://www.whichbingo.co.uk/news/feed/
-
+# ---------------------------
+# Podcasts
+# ---------------------------
 podcasts_listennotes_queries:
   - "UK online casino regulation"
   - "remote gaming duty UK"
   - "igaming UK casino slots"
+  - "UK Gambling Commission"
+  - "safer gambling UK"
+  - "Flutter Entain bet365 UK"
+  - "Playtech Evolution Pragmatic Play UK"
+  - "bingo UK"
+  - "poker UK"
 
+podcasts_rss:
+  - https://feeds.transistor.fm/igaming-daily
+  - https://feeds.captivate.fm/thegamblingfiles/
+  - https://feeds.acast.com/public/shows/the-problem-gambling-podcast
+
+# ---------------------------
+# MUST INCLUDE (direct URLs)
+# These URLs are injected even without RSS — great for EGR / paywalled / single pages.
+# Replace/add each week as needed.
+# ---------------------------
 must_include:
   urls:
     - "https://www.egr.global/intel/news/bgc-ceo-gambling-tax-increases-wont-solve-anything/"
-    # add any other single pages here you definitely want included each week
-
+    # Example SOFTSWISS item — replace with the current week’s article URL:
+    # - "https://www.softswiss.com/news/softswiss-announces-uk-focused-partnership-xyz/"
