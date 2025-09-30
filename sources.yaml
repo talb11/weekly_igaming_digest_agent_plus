@@ -159,3 +159,87 @@ podcasts_rss:
   - https://feeds.transistor.fm/igaming-daily
   - https://feeds.captivate.fm/thegamblingfiles/
   - https://feeds.acast.com/public/shows/the-problem-gambling-podcast
+  focus:
+  region: uk
+  keywords:
+    - uk
+    - britain
+    - england
+    - hm treasury
+    - dcms
+    - levy
+    - duty
+    - tax
+  companies:
+    - flutter
+    - entain
+    - 888
+    - william hill
+    - bet365
+    - kindred
+    - softswiss
+    - evolution
+    - pragmatic play
+  domain_suffixes: [".co.uk", ".uk", ".gov.uk", ".org.uk"]
+  source_domains_prefer:
+    - egr.global
+    - softswiss.com
+    - slotbeats.com
+    - igamingbusiness.com
+    - europeangaming.eu
+  trend_hints:
+    - gambling tax
+    - remote gaming duty
+    - levy
+    - casino duty
+    - stake limits
+
+major_keywords:
+  - tax
+  - duty
+  - levy
+  - treasury
+  - black market
+  - stake limits
+  - merger
+  - acquisition
+  - fine
+  - enforcement
+  - regulation
+  - licensing
+
+news_rss:
+  - https://www.igamingbusiness.com/feed/          # iGB (broad, includes UK)
+  - https://europeangaming.eu/portal/feed/         # Euro Gaming (frequent SOFTSWISS)
+  - https://www.sbcnews.co.uk/feed/                # SBC News UK
+  - https://www.casinobeats.com/feed/              # CasinoBeats
+  - https://www.theguardian.com/sport/betting/rss  # Guardian betting (UK)
+  # (EGR’s public RSS is limited; we inject specific EGR links via must_include.urls)
+
+games_rss:
+  - https://slotbeats.com/feed/
+  - https://slotbeats.com/category/developer/feed/
+  - https://www.casinobeats.com/category/slot-news/feed/
+
+games_fallback_rss:
+  - https://slotbeats.com/category/slot-releases/feed/
+  - https://www.casinobeats.com/category/slot-developer-news/feed/
+
+poker_rss:
+  - https://www.pokernews.com/rss/all.xml
+  - https://www.cardplayer.com/rss/news.xml
+
+bingo_rss:
+  - https://www.bingocall.co.uk/feed/
+  - https://www.whichbingo.co.uk/news/feed/
+
+podcasts_listennotes_queries:
+  - "UK online casino regulation"
+  - "remote gaming duty UK"
+  - "igaming UK casino slots"
+
+must_include:
+  urls:
+    - "https://www.egr.global/intel/news/bgc-ceo-gambling-tax-increases-wont-solve-anything/"
+    # add any other single pages here you definitely want included each week
+
