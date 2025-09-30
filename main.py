@@ -1,4 +1,4 @@
-import os, re, html, json, time, smtplib, datetime, requests, feedparser, yaml
+import os, re, html, json, time, smtplib, datetime, requests, feedparser, yaml, difflib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from dotenv import load_dotenv
@@ -29,9 +29,9 @@ SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASS = os.getenv("SMTP_PASS")
 
 LOOKBACK_DAYS = int(os.getenv("LOOKBACK_DAYS", "7"))
-MAX_ITEMS_PER_SECTION = int(os.getenv("MAX_ITEMS_PER_SECTION", "12"))  # תקרת איסוף ראשונית
+MAX_ITEMS_PER_SECTION = int(os.getenv("MAX_ITEMS_PER_SECTION", "12"))  # cap per feed before shaping email
 MAJOR_ONLY_NON_CASINO = (os.getenv("MAJOR_ONLY_NON_CASINO", "true").lower() == "true")
-FOCUS_THRESHOLD = int(os.getenv("FOCUS_THRESHOLD", "1"))  # 0/1/2 (2=קשוח)
+FOCUS_THRESHOLD = int(os.getenv("FOCUS_THRESHOLD", "1"))  # 0/1/2 (2=stricter)
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 # Strict email layout
@@ -57,7 +57,7 @@ def load_sources(path="sources.yaml"):
 
 # ---------- Helpers ----------
 def within_lookback(published_struct):
-    if not published_struct:
+    if not published_struct:  # keep if unknown date
         return True
     published = datetime.datetime(*published_struct[:6])
     now = datetime.datetime.utcnow()
@@ -100,14 +100,14 @@ def dedup_items(items):
     seen, out = set(), []
     for it in items:
         k = (it.get("title","").lower(), it.get("link",""))
-        if k in seen:
+        if k in seen: 
             continue
         seen.add(k); out.append(it)
     return out
 
-def is_major(body, major_terms):
+def is_major(body, terms):
     body = (body or "").lower()
-    return any(term.lower() in body for term in (major_terms or []))
+    return any(t.lower() in body for t in (terms or []))
 
 # ---------- UK Focus Scoring ----------
 NON_UK_HINTS = [
@@ -123,10 +123,8 @@ def parse_focus(sources):
     def norm_list(seq):
         out = []
         for x in (seq or []):
-            try:
-                out.append(str(x).strip().lower())
-            except Exception:
-                pass
+            try: out.append(str(x).strip().lower())
+            except: pass
         return out
     return {
         "region": str(focus.get("region","")).strip().lower(),
@@ -179,7 +177,6 @@ def _llm_json(prompt, tries=2, temperature=0.2, system="You are a precise iGamin
         except Exception as e:
             last = e
             time.sleep(0.8)
-            # best-effort fallback (no response_format)
             try:
                 r = client.chat.completions.create(
                     model=MODEL,
@@ -212,7 +209,7 @@ def collect_listennotes_items(queries, major_terms, focus):
                 title = ep.get("title_original") or ep.get("title") or ""
                 link  = ep.get("listennotes_url") or ep.get("link") or ep.get("audio") or ""
                 desc  = strip_tags(ep.get("description_original") or ep.get("description") or "")
-                if not title or not link:
+                if not title or not link: 
                     continue
                 items.append({
                     "title": title.strip(),
@@ -230,9 +227,9 @@ def collect_listennotes_items(queries, major_terms, focus):
     items = apply_focus_filter(items, focus, major_terms)
     return items[:MAX_ITEMS_PER_SECTION] if MAX_ITEMS_PER_SECTION > 0 else items
 
-# ---------- Section summaries (cards) ----------
+# ---------- Summaries (cards) ----------
 def summarize_cards(items, title_text):
-    """Render items as cards (EN + HE)."""
+    """Render items as cards (EN + HE via LLM, with robust fallbacks)."""
     if not items:
         return ""
     def llm_two_paras(it):
@@ -281,7 +278,6 @@ def summarize_cards(items, title_text):
         safe_link  = html.escape(it["link"])
         safe_en    = html.escape(en)
         safe_he    = html.escape(he)
-
         card = (
             '<div style="border:1px solid #e6e8eb;border-radius:12px;background:#ffffff;'
             'box-shadow:0 1px 3px rgba(0,0,0,0.05);padding:16px;margin:12px 0;">'
@@ -306,7 +302,7 @@ def summarize_cards(items, title_text):
     )
     return header + "".join(cards)
 
-# ---------- Trends (3) ----------
+# ---------- Trends (3, macro; not individual items) ----------
 STOP = set("the a an and or for of to in on with by from as at is are was were be been being it this that these those not no".split())
 def _tokens(s):
     s = re.sub(r"[^a-zA-Z0-9 £]", " ", s or "")
@@ -395,9 +391,17 @@ def _game_score(it, focus):
     if " uk " in t or "britain" in t or "united kingdom" in t or "england" in t: s += 2
     if "launch" in t or "released" in t or "unveils" in t: s += 1
     if "megaways" in t or "jackpot" in t or "live" in t or "game show" in t: s += 1
-    s += max(0, score_focus(it, focus))  # עוד הטיית UK
+    s += max(0, score_focus(it, focus))  # nudge for UK focus
     if any(h in t for h in NON_UK_HINTS): s -= 2
     return s
+
+def _norm_title(s: str) -> str:
+    s = (s or "").lower().strip()
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+def _is_title_similar(a: str, b: str, thr=0.9) -> bool:
+    return difflib.SequenceMatcher(None, _norm_title(a), _norm_title(b)).ratio() >= thr
 
 def build_games_section(collected, focus):
     candidates = []
@@ -406,7 +410,7 @@ def build_games_section(collected, focus):
             if is_game_item(it):
                 candidates.append(it)
     if not candidates:
-        return "", set()
+        return "", set(), set()
 
     candidates = dedup_items(candidates)
 
@@ -418,6 +422,8 @@ def build_games_section(collected, focus):
 
     cards = []
     used_links = set()
+    used_titles = set()
+
     for it in top:
         prompt = (
             "Rewrite two concise paragraphs about the following online casino game item: "
@@ -439,6 +445,7 @@ def build_games_section(collected, focus):
         en   = html.escape(en)
         he   = html.escape(he)
         used_links.add(it.get("link",""))
+        used_titles.add(it.get("title",""))
 
         cards.append(
             '<div style="border:1px solid #e6e8eb;border-radius:12px;background:#ffffff;'
@@ -456,7 +463,7 @@ def build_games_section(collected, focus):
         'padding-bottom:6px;border-bottom:1px solid #eceff3;color:#111827;">'
         '🎮 Top Games in England — 5 to Watch</div>'
     )
-    return header + "".join(cards), used_links
+    return header + "".join(cards), used_links, used_titles
 
 # ---------- Back to top ----------
 def _back_to_top():
@@ -469,13 +476,19 @@ def build_email(collected, focus):
     # 1) Trends
     trends_html = build_trends_section(collected)
 
-    # 2) Games (collect used links to avoid duplicates later)
-    games_html, used_links = build_games_section(collected, focus)
+    # 2) Games (collect used links & titles to avoid duplicates later)
+    games_html, used_links, used_titles = build_games_section(collected, focus)
 
-    # 3) Online Casino — UK Focus (עד NEWS_MAX), בלי מה שכבר הופיע ב-Games
+    # 3) Online Casino — UK Focus (≤ NEWS_MAX), without items already used in Games by link OR similar title
     news = collected.get("news_rss", []) or []
-    news = [it for it in news if it.get("link") not in used_links]
-    news = news[:NEWS_MAX]
+    filtered_news = []
+    for it in news:
+        if it.get("link") in used_links:
+            continue
+        if any(_is_title_similar(it.get("title",""), t) for t in used_titles):
+            continue
+        filtered_news.append(it)
+    news = filtered_news[:NEWS_MAX]
     news_html = summarize_cards(news, "🎰 Online Casino — UK Focus")
 
     # Compose email (strict order + TOC + anchors + icons)
@@ -593,12 +606,12 @@ def try_log_to_sheets(collected):
 if __name__ == "__main__":
     src = load_sources()
     focus = parse_focus(src)
-    # major_keywords יכולים להופיע גם בשורש וגם בתוך focus (לנוחות)
-    major_terms = src.get("major_keywords", []) or src.get("focus", {}).get("major_keywords", [])
+    # major_keywords יכולים להופיע בשורש או תחת focus
+    major_terms = (src.get("major_keywords", []) or src.get("focus", {}).get("major_keywords", []))
 
     collected = {}
 
-    # RSS sections (כולל games_rss אם הוספת ב-sources.yaml)
+    # RSS sections (כולל games_rss אם יש)
     for section in ["news_rss", "poker_rss", "bingo_rss", "games_rss"]:
         urls = src.get(section, []) or []
         items = collect_rss_items(section, urls)
@@ -610,7 +623,7 @@ if __name__ == "__main__":
             items = items[:MAX_ITEMS_PER_SECTION]
         collected[section] = items
 
-    # Podcasts (לא מוצג כרגע במייל, אבל נשמר ללוג/טרנדים)
+    # Podcasts (נאספים לטרנדים/לוג בלבד כרגע)
     ln_queries = src.get("podcasts_listennotes_queries", []) or []
     collected["podcasts_listennotes"] = collect_listennotes_items(ln_queries, major_terms, focus)
 
