@@ -220,7 +220,7 @@ def collect_listennotes_items(queries, major_terms, focus):
                 title = ep.get("title_original") or ep.get("title") or ""
                 link  = ep.get("listennotes_url") or ep.get("link") or ep.get("audio") or ""
                 desc  = strip_tags(ep.get("description_original") or ep.get("description") or "")
-                if not title or not link: 
+                if not title or not link:
                     continue
                 items.append({
                     "title": title.strip(),
@@ -264,8 +264,7 @@ def inject_must_include(urls):
     out = []
     for u in (urls or []):
         meta = fetch_url_metadata(u)
-        if not meta: 
-            # still include a minimal shell to ensure link presence
+        if not meta:
             out.append({"title": u, "summary": "", "link": u, "section": "news_rss", "source": "manual"})
         else:
             meta.update({"section":"news_rss","source":"manual"})
@@ -346,15 +345,24 @@ def summarize_cards(items, title_text):
 
 # ---------- Trends (3, macro) ----------
 STOP = set("the a an and or for of to in on with by from as at is are was were be been being it this that these those not no".split())
+
 def _tokens(s):
     s = re.sub(r"[^a-zA-Z0-9 £]", " ", s or "")
     return [w.lower() for w in s.split() if len(w) > 2 and w.lower() not in STOP]
 
 def build_trends_section(collected, focus):
+    # only aggregate dict items (skip meta like _games_fallback_urls)
     pool = []
-    for sec, arr in collected.items():
+    for sec, arr in (collected or {}).items():
+        if sec.startswith("_"):
+            continue
+        if not isinstance(arr, list):
+            continue
         for it in arr:
-            pool.append((it.get("title","") or "") + " " + (it.get("summary","") or ""))
+            if not isinstance(it, dict):
+                continue
+            pool.append(f"{it.get('title','') or ''} {it.get('summary','') or ''}")
+
     if not pool:
         return ""
 
@@ -362,12 +370,21 @@ def build_trends_section(collected, focus):
     for p in pool:
         toks.extend(_tokens(p))
     counts = Counter(toks)
-    top_terms = [w for w,_ in counts.most_common(60)]
+    top_terms = [w for w, _ in counts.most_common(60)]
 
-    titles = [it.get("title","") for arr in collected.values() for it in arr][:40]
-    context = "\n".join(f"- {t}" for t in titles if t)
+    titles = []
+    for sec, arr in (collected or {}).items():
+        if sec.startswith("_") or not isinstance(arr, list):
+            continue
+        for it in arr:
+            if isinstance(it, dict):
+                t = it.get("title", "")
+                if t:
+                    titles.append(t)
+    titles = titles[:40]
+    context = "\n".join(f"- {t}" for t in titles)
 
-    hints = ", ".join((focus.get("trend_hints") or []))
+    hints = ", ".join((focus.get("trend_hints") or []) if isinstance(focus, dict) else [])
 
     prompt = (
         "You are an iGaming analyst. Based ONLY on the provided keyword frequencies and recent titles, "
@@ -466,7 +483,6 @@ def _summarize_game_card(it):
     return en, he
 
 def build_games_section(collected, focus):
-    # candidates from multiple buckets
     candidates = []
     for sec in ("news_rss", "games_rss", "bingo_rss", "poker_rss"):
         for it in (collected.get(sec) or []):
@@ -474,10 +490,8 @@ def build_games_section(collected, focus):
                 candidates.append(it)
     candidates = dedup_items(candidates)
 
-    # rank
     ranked = sorted(candidates, key=lambda it: _game_score(it, focus), reverse=True)
 
-    # ensure 5 picks with fallback (expand lookback for game feeds only)
     top = ranked[:GAMES_TARGET]
     if len(top) < GAMES_TARGET:
         fallback_urls = collected.get("_games_fallback_urls") or []
@@ -485,7 +499,6 @@ def build_games_section(collected, focus):
             extra = collect_rss_items("games_rss_fallback", fallback_urls, lookback_days=max(LOOKBACK_DAYS, 21))
             extra = [it for it in extra if is_game_item(it)]
             extra = dedup_items(extra)
-            # avoid dup by title similarity/link
             safe = []
             usedL = set([x.get("link") for x in top])
             usedT = [x.get("title","") for x in top]
@@ -554,7 +567,6 @@ def build_email(collected, focus):
     news = filtered_news[:NEWS_MAX]
     news_html = summarize_cards(news, "🎰 Online Casino — UK Focus")
 
-    # Compose email in your requested order
     intro = (
         "<h1 style='margin:0 0 6px;font-size:22px;font-weight:800;color:#0b1220;'>Weekly iGaming Digest</h1>"
         "<p style='margin:0 0 12px;color:#4b5563;font-size:14px;'>"
@@ -571,7 +583,6 @@ def build_email(collected, focus):
         intro
     ]
 
-    # TOC
     toc_html = (
         "<div style='display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 14px'>"
         "<a href='#trends' style='padding:8px 10px;border:1px solid #e5e7eb;border-radius:8px;text-decoration:none;"
@@ -697,7 +708,6 @@ if __name__ == "__main__":
     if manual_items:
         merged = (collected.get("news_rss") or []) + manual_items
         collected["news_rss"] = dedup_items(merged)
-        # re-apply focus to avoid accidental drop
         collected["news_rss"] = apply_focus_filter(collected["news_rss"], focus, major_terms)
 
     try_log_to_sheets(collected)
